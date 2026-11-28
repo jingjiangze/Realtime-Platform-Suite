@@ -1,0 +1,17 @@
+# 构建产物
+/server
+/bin/
+*.test
+*.out
+dist/
+
+# 本地环境与凭据（永远不要提交）
+.env
+.env.*
+# 但模板要提交，否则别人 clone 拿不到配置说明
+!.env.example
+
+# 编辑器
+.idea/
+.vscode/
+.DS_Store

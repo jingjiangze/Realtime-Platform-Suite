@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>realtime-platform-foundation · demo</title>
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; color: #1f2328; background: #f6f7f8; }
+  main { max-width: 720px; margin: 0 auto; padding: 24px; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  .hint { color: #6b7280; margin: 0 0 16px; font-size: 13px; }
+  .card { background: #fff; border: 1px solid #d0d7de; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+  label { display: block; font-size: 12px; color: #57606a; margin-bottom: 4px; }
+  input, textarea, button { font: inherit; }
+  input, textarea { width: 100%; padding: 8px 10px; border: 1px solid #d0d7de; border-radius: 6px; }
+  textarea { resize: vertical; min-height: 60px; }
+  button { padding: 8px 14px; border: 1px solid #1f6feb; background: #1f6feb; color: #fff; border-radius: 6px; cursor: pointer; }
+  button:disabled { opacity: .6; cursor: default; }
+  .row { display: flex; gap: 8px; align-items: flex-end; }
+  .row > div { flex: 1; }
+  ul#log { list-style: none; margin: 12px 0 0; padding: 0; }
+  ul#log li { padding: 6px 0; border-bottom: 1px solid #eaeef2; }
+  ul#log li:last-child { border-bottom: 0; }
+  .meta { color: #6b7280; font-size: 12px; margin-left: 6px; }
+  #status { color: #57606a; font-size: 12px; min-height: 16px; margin-top: 8px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>实时业务框架 · 演示</h1>
+  <p class="hint">这是一个最小前端示例：只调用 <code>/v1/demo/*</code> 演示端点，验证 Provider 契约。
+    页面不依赖构建工具，直接用浏览器打开即可（记得先启动 API）。</p>
+
+  <div class="card">
+    <div class="row">
+      <div>
+        <label for="api">API 地址</label>
+        <input id="api" value="http://localhost:8080">
+      </div>
+      <div>
+        <label for="user">用户 ID</label>
+        <input id="user" value="u1">
+      </div>
+      <button id="login">登录</button>
+    </div>
+    <div id="status"></div>
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <div>
+        <label for="conv">会话 ID</label>
+        <input id="conv" value="c1">
+      </div>
+      <button id="load">加载历史</button>
+    </div>
+    <ul id="log"></ul>
+  </div>
+
+  <div class="card">
+    <label for="text">发送消息</label>
+    <textarea id="text" placeholder="输入后按 Ctrl+Enter 发送"></textarea>
+    <div class="row" style="margin-top:8px">
+      <button id="send">发送</button>
+    </div>
+  </div>
+</main>
+
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var statusEl = $('status');
+  var logEl = $('log');
+  var session = null;
+
+  function apiBase() { return $('api').value.replace(/\/+$/, ''); }
+  function setStatus(s) { statusEl.textContent = s || ''; }
+
+  function render(items) {
+    logEl.innerHTML = '';
+    (items || []).forEach(function (m) {
+      var li = document.createElement('li');
+      li.textContent = m.text || m.mediaUrl || '(非文本消息)';
+      var meta = document.createElement('span');
+      meta.className = 'meta';
+      meta.textContent = '#' + m.seq + ' · ' + (m.senderId || '?');
+      li.appendChild(meta);
+      logEl.appendChild(li);
+    });
+  }
+
+  async function post(path, body) {
+    var res = await fetch(apiBase() + path, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body || {})
+    });
+    var data = await res.json().catch(function () { return {}; });
+    if (!res.ok) throw new Error(data.error || ('HTTP ' + res.status));
+    return data;
+  }
+
+  $('login').addEventListener('click', async function () {
+    setStatus('登录中…');
+    try {
+      session = await post('/v1/demo/login', { userId: $('user').value, credential: 'demo' });
+      setStatus('已登录：' + session.userId + '（token 仅演示）');
+    } catch (e) {
+      setStatus('登录失败：' + e.message);
+    }
+  });
+
+  $('load').addEventListener('click', async function () {
+    setStatus('加载中…');
+    try {
+      var url = apiBase() + '/v1/demo/chat/history?convId=' + encodeURIComponent($('conv').value) +
+        '&userId=' + encodeURIComponent($('user').value) + '&limit=50';
+      var res = await fetch(url);
+      var data = await res.json();
+      if (!res.ok) throw new Error(data.error || ('HTTP ' + res.status));
+      render(data.items);
+      setStatus('共 ' + (data.items || []).length + ' 条');
+    } catch (e) {
+      setStatus('加载失败：' + e.message);
+    }
+  });
+
+  async function send() {
+    var text = $('text').value.trim();
+    if (!text) return;
+    $('send').disabled = true;
+    try {
+      var msg = await post('/v1/demo/chat/send', {
+        convId: $('conv').value,
+        senderId: $('user').value,
+        text: text,
+        clientMsgId: 'cid-' + Date.now()
+      });
+      $('text').value = '';
+      await $('load').click();
+      setStatus('已发送 msgId=' + msg.msgId);
+    } catch (e) {
+      setStatus('发送失败：' + e.message);
+    } finally {
+      $('send').disabled = false;
+    }
+  }
+
+  $('send').addEventListener('click', send);
+  $('text').addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) send();
+  });
+})();
+</script>
+</body>
+</html>
